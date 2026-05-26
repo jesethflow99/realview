@@ -1,0 +1,56 @@
+[database]
+# backend: "sqlite" (dev), "postgresql" (server), o "embedded" (portátil auto-gestionado)
+backend = "embedded"
+# Solo para PostgreSQL:
+host = "localhost"
+port = 5432
+name = "realview"
+user = "postgres"
+password = "postgres"
+schema = "public"
+# Solo para SQLite:
+sqlite_path = "data/realview.db"
+
+[paths]
+input_dir = "data/input"
+processed_dir = "data/processed"
+rejected_dir = "data/rejected"
+
+[etl]
+batch_size = 1000
+idempotent = true
+
+[scheduler]
+enabled = true
+interval_minutes = 5
+
+[watcher]
+enabled = true
+patterns = ["*.csv", "*.xlsx", "*.xls", "*.json"]
+
+[logging]
+level = "INFO"
+file = "logs/realview.log"
+
+[datasets]
+
+[datasets.shipments]
+file_pattern = "shipments_*.csv"
+table = "shipments"
+delimiter = ","
+skip_rows = 0
+column_mapping = {}
+
+[datasets.products]
+file_pattern = "products_*"
+table = "products"
+delimiter = ","
+skip_rows = 0
+column_mapping = {}
+
+[datasets.orders]
+file_pattern = "orders_*"
+table = "orders"
+delimiter = ","
+skip_rows = 0
+column_mapping = {}

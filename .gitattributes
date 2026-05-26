@@ -1,0 +1,9 @@
+# Auto detect text files
+* text=auto
+
+# Scripts
+*.bat text eol=crlf
+*.sh text eol=lf
+*.toml text
+*.py text
+*.sql text

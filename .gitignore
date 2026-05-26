@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+*.spec
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project data (user-generated)
+data/*.db
+data/processed/*
+data/rejected/*
+!data/input/.gitkeep
+
+# PostgreSQL embedded
+pg/
+pgdata/
+pg.log
+
+# Logs
+logs/
+*.log
+
+# Streamlit (legacy)
+.streamlit/
+
+# Config overrides (local)
+config/local.toml
+config/*.local.toml
