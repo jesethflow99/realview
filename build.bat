@@ -2,7 +2,7 @@
 chcp 65001 >nul
 title RealView Build
 
-echo === RealView — Build para Windows ===
+echo === RealView - Build para Windows ===
 echo.
 
 REM Verificar Python
@@ -13,16 +13,17 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-REM Verificar que tiene Tkinter (viene con Python en Windows)
-python -c "import tkinter; print('✅ Tkinter OK')" 2>nul
+REM Verificar Tkinter (viene con Python en Windows)
+python -c "import tkinter"
 if %errorlevel% neq 0 (
-    echo [ERROR] Tkinter no disponible. Reinstala Python con la opcion "tcl/tk"
+    echo [ERROR] Tkinter no disponible. Reinstala Python con tcl/tk
     pause
     exit /b 1
 )
+echo Tkinter OK
 
-REM Crear virtualenv si no existe
-if not exist venv (
+REM Crear virtualenv
+if not exist venv\Scripts\python.exe (
     echo Creando virtualenv...
     python -m venv venv
 )
@@ -32,18 +33,17 @@ call venv\Scripts\activate.bat
 
 REM Instalar dependencias
 echo Instalando dependencias...
-pip install -U pip >nul
-pip install -r requirements.txt
-pip install pyinstaller
+pip install -r requirements.txt >nul
+pip install pyinstaller >nul
 
-REM Descargar PostgreSQL portátil (si no existe)
+REM Descargar PostgreSQL portatil
 echo.
-echo === Verificando PostgreSQL portátil ===
+echo === Verificando PostgreSQL portatil ===
 if not exist pg\pgsql\bin\pg_ctl.exe (
-    echo Descargando PostgreSQL portátil (~130MB)...
+    echo Descargando PostgreSQL (130MB)...
     python download_pg.py
 ) else (
-    echo PostgreSQL portátil encontrado en pg\
+    echo PostgreSQL portatil encontrado en pg\
 )
 
 echo.
@@ -70,18 +70,18 @@ pyinstaller ^
 
 if %errorlevel% equ 0 (
     echo.
-    echo ✅  Build exitoso!
-    echo    Ejecutable: dist\RealView.exe
+    echo Build exitoso!
+    echo Ejecutable: dist\RealView.exe
     echo.
-    echo    Al ejecutarlo por primera vez:
-    echo      1. Inicializa PostgreSQL en pgdata\
-    echo      2. Crea la base de datos 'realview'
-    echo      3. Abre la interfaz gráfica
+    echo Al ejecutarlo por primera vez:
+    echo  1. Inicializa PostgreSQL en pgdata\
+    echo  2. Crea la base de datos 'realview'
+    echo  3. Abre la interfaz grafica
     echo.
-    echo    Power BI se conecta a: localhost:5432 / realview
+    echo Power BI se conecta a: localhost:5432 / realview
 ) else (
     echo.
-    echo ❌  Error en el build. Revisa los mensajes arriba.
+    echo Error en el build. Revisa los mensajes arriba.
 )
 
 pause
