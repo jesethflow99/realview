@@ -1,6 +1,7 @@
 import sys
 import traceback
 from pathlib import Path
+from urllib.parse import quote_plus
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -46,10 +47,12 @@ def get_database_url(config: dict | None = None) -> str:
         path = db.get("sqlite_path", "data/realview.db")
         return f"sqlite:///{path}"
 
+    user = quote_plus(db["user"])
+    password = quote_plus(db["password"])
     if backend in ("mariadb", "mysql"):
-        return f"mysql+pymysql://{db['user']}:{db['password']}@{db['host']}:{db['port']}/{db['name']}"
+        return f"mysql+pymysql://{user}:{password}@{db['host']}:{db['port']}/{db['name']}"
 
-    return f"postgresql://{db['user']}:{db['password']}@{db['host']}:{db['port']}/{db['name']}"
+    return f"postgresql://{user}:{password}@{db['host']}:{db['port']}/{db['name']}"
 
 
 def get_engine(config: dict | None = None):
