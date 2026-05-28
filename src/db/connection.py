@@ -61,6 +61,7 @@ def get_engine(config: dict | None = None):
     if not is_sqlite:
         kwargs["pool_pre_ping"] = True
         kwargs["pool_size"] = 5
+        kwargs["connect_args"] = {"connect_timeout": 10}
     if is_sqlite:
         kwargs["connect_args"] = {"check_same_thread": False}
     return create_engine(url, **kwargs)

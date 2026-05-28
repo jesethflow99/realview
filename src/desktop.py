@@ -131,6 +131,10 @@ class RealViewApp(ctk.CTk):
             conn_module._config = None
 
         try:
+            import os
+            pw = self.config_data["database"].get("password", "")
+            if pw:
+                os.environ["PGPASSWORD"] = pw
             self.engine = get_engine(self.config_data)
             run_migrations(self.engine, self.config_data)
             backend_name = self.config_data["database"]["backend"]
