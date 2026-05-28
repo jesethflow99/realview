@@ -94,6 +94,8 @@ $pyiArgs = @(
     '--hidden-import', 'sqlalchemy',
     '--hidden-import', 'sqlalchemy.dialects.sqlite',
     '--hidden-import', 'sqlalchemy.dialects.postgresql',
+    '--hidden-import', 'sqlalchemy.dialects.mysql',
+    '--hidden-import', 'pymysql',
     '--hidden-import', 'pandas',
     '--hidden-import', 'openpyxl',
     '--hidden-import', 'tomli',

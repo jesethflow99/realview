@@ -33,6 +33,9 @@ def get_database_url(config: dict | None = None) -> str:
         path = db.get("sqlite_path", "data/realview.db")
         return f"sqlite:///{path}"
 
+    if backend in ("mariadb", "mysql"):
+        return f"mysql+pymysql://{db['user']}:{db['password']}@{db['host']}:{db['port']}/{db['name']}"
+
     return f"postgresql://{db['user']}:{db['password']}@{db['host']}:{db['port']}/{db['name']}"
 
 

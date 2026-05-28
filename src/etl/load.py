@@ -20,6 +20,11 @@ def _is_sqlite(engine) -> bool:
     return "sqlite" in str(engine.url)
 
 
+def _is_mysql(engine) -> bool:
+    url = str(engine.url)
+    return "mysql" in url or "mariadb" in url
+
+
 def _qualify(table: str, schema: str | None, is_sqlite: bool) -> str:
     return table if is_sqlite else f"{schema}.{table}"
 
@@ -54,21 +59,33 @@ def load(
 
         df_to_load.to_sql(temp_table, engine, if_exists="replace", index=False, method="multi")
 
-        set_clause = ", ".join(
-            f"{col} = excluded.{col}" for col in target_cols if col not in pk_cols
-        )
-        insert_cols = ", ".join(target_cols)
-        conflict_cols = ", ".join(pk_cols)
+        if _is_mysql(engine):
+            set_clause = ", ".join(
+                f"{col} = VALUES({col})" for col in target_cols if col not in pk_cols
+            )
+            insert_cols = ", ".join(target_cols)
+            noop_col = target_cols[0]
+            final_set = set_clause if set_clause else f"{noop_col} = VALUES({noop_col})"
+            upsert_sql = text(f"""
+                INSERT INTO {qualified} ({insert_cols})
+                SELECT {insert_cols} FROM {temp_table}
+                ON DUPLICATE KEY UPDATE {final_set}
+            """)
+        else:
+            set_clause = ", ".join(
+                f"{col} = excluded.{col}" for col in target_cols if col not in pk_cols
+            )
+            insert_cols = ", ".join(target_cols)
+            conflict_cols = ", ".join(pk_cols)
+            noop_col = target_cols[0]
+            final_set = set_clause if set_clause else f"{noop_col} = excluded.{noop_col}"
+            upsert_sql = text(f"""
+                INSERT INTO {qualified} ({insert_cols})
+                SELECT {insert_cols} FROM {temp_table}
+                ON CONFLICT ({conflict_cols})
+                DO UPDATE SET {final_set}
+            """)
 
-        noop_col = target_cols[0]
-        final_set = set_clause if set_clause else f"{noop_col} = excluded.{noop_col}"
-
-        upsert_sql = text(f"""
-            INSERT INTO {qualified} ({insert_cols})
-            SELECT {insert_cols} FROM {temp_table}
-            ON CONFLICT ({conflict_cols})
-            DO UPDATE SET {final_set}
-        """)
         with engine.begin() as conn:
             conn.execute(upsert_sql)
             conn.execute(text(f"DROP TABLE IF EXISTS {temp_table}"))

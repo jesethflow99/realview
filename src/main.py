@@ -4,7 +4,7 @@ import signal
 import sys
 from pathlib import Path
 
-from src.db.connection import load_config
+from src.db.connection import load_config, get_engine
 from src.db.migrations import run_migrations
 from src.scheduler.scheduler import start_scheduler
 from src.watcher.file_watcher import start_watcher
@@ -41,7 +41,8 @@ def run_etl(args, config: dict):
 
 
 def run_daemon(config: dict):
-    run_migrations()
+    engine = get_engine(config)
+    run_migrations(engine)
     observers = []
     scheduler = None
 
@@ -51,6 +52,16 @@ def run_daemon(config: dict):
     if config["watcher"].get("enabled", True):
         observer = start_watcher(config)
         observers.append(observer)
+
+    if config.get("api", {}).get("enabled", True):
+        try:
+            from src.api.server import start_api_server
+            host = config.get("api", {}).get("host", "0.0.0.0")
+            port = config.get("api", {}).get("port", 8000)
+            start_api_server(engine, config, host=host, port=port)
+            logger.info(f"REST API on http://{host}:{port}/api/docs")
+        except Exception as e:
+            logger.warning(f"REST API no pudo iniciar: {e}")
 
     def shutdown(sig, frame):
         logger.info("Shutting down...")
@@ -77,9 +88,13 @@ def main():
     parser = argparse.ArgumentParser(description="RealView — ETL + Data Platform")
     subparsers = parser.add_subparsers(dest="command", help="Subcommands")
 
-    subparsers.add_parser("daemon", help="Run watcher + scheduler")
+    subparsers.add_parser("daemon", help="Run watcher + scheduler + REST API")
 
     subparsers.add_parser("migrate", help="Run DB migrations")
+
+    api_parser = subparsers.add_parser("api", help="Start REST API server only")
+    api_parser.add_argument("--host", type=str, default="0.0.0.0", help="API host")
+    api_parser.add_argument("--port", type=int, default=8000, help="API port")
 
     etl_parser = subparsers.add_parser("etl", help="Run ETL once")
     etl_parser.add_argument("--file", "-f", type=str, help="Single file to process")
@@ -87,7 +102,7 @@ def main():
 
     subparsers.add_parser("desktop", help="Launch desktop GUI")
 
-    ui_parser = subparsers.add_parser("ui", help="Launch Streamlit UI (legacy)")
+    subparsers.add_parser("ui", help="Launch Streamlit UI (legacy)")
 
     args = parser.parse_args()
 
@@ -96,6 +111,21 @@ def main():
     elif args.command == "migrate":
         run_migrations()
         print("Migrations complete.")
+    elif args.command == "api":
+        from src.api.server import start_api_server
+        engine = get_engine(config)
+        run_migrations(engine)
+        print(f"REST API starting on http://{args.host}:{args.port}/api/docs")
+        start_api_server(engine, config, host=args.host, port=args.port)
+        import signal as sig
+        sig.signal(sig.SIGINT, lambda *_: sys.exit(0))
+        sig.signal(sig.SIGTERM, lambda *_: sys.exit(0))
+        try:
+            import time
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
     elif args.command == "etl":
         run_etl(args, config)
     elif args.command == "desktop":

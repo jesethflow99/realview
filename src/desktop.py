@@ -67,6 +67,7 @@ class RealViewApp(ctk.CTk):
         self._embedded_pg = None
         self._watcher_observer = None
         self._scheduler = None
+        self._api_port = self.config_data.get("api", {}).get("port", 8000)
         self.engine = None
         self.connected = False
 
@@ -86,7 +87,8 @@ class RealViewApp(ctk.CTk):
         self.connected = connected
         if connected:
             self.status_dot.configure(text_color="green")
-            backend_label = {"sqlite": "SQLite", "postgresql": "PostgreSQL", "embedded": "PostgreSQL Embebido"}.get(backend, backend)
+            names = {"sqlite": "SQLite", "postgresql": "PostgreSQL", "embedded": "PG Embebido", "mariadb": "MariaDB", "mysql": "MySQL"}
+            backend_label = names.get(backend, backend)
             self.status_label.configure(text=f"Conectado — {backend_label}")
         else:
             self.status_dot.configure(text_color="red")
@@ -134,6 +136,7 @@ class RealViewApp(ctk.CTk):
             self._update_status(True, backend_name)
             self._start_watcher()
             self._start_scheduler()
+            self._start_api()
             return True
         except Exception as e:
             print(f"[ERROR] Connection failed: {e}")
@@ -167,6 +170,23 @@ class RealViewApp(ctk.CTk):
             self._scheduler = start_scheduler(self.config_data, engine=self.engine)
         except Exception as e:
             print(f"[WARN] Scheduler no pudo iniciar: {e}")
+
+    def _start_api(self):
+        if not self.engine:
+            return
+        if not self.config_data.get("api", {}).get("enabled", True):
+            print("[INFO] REST API disabled in config")
+            return
+        try:
+            from src.api.server import start_api_server
+            host = self.config_data.get("api", {}).get("host", "0.0.0.0")
+            port = self.config_data.get("api", {}).get("port", 8000)
+            start_api_server(self.engine, self.config_data, host=host, port=port)
+            print(f"[INFO] REST API started on http://{host}:{port}/api/docs")
+        except ImportError:
+            print("[WARN] fastapi/uvicorn not installed. pip install fastapi uvicorn")
+        except Exception as e:
+            print(f"[WARN] REST API no pudo iniciar: {e}")
 
     def _setup_grid(self):
         self.grid_columnconfigure(0, weight=0, minsize=220)
@@ -270,7 +290,7 @@ class RealViewApp(ctk.CTk):
         self.backend_var = ctk.StringVar(value=self.config_data["database"].get("backend", "sqlite"))
         backend_menu = ctk.CTkOptionMenu(
             card,
-            values=["sqlite", "postgresql", "embedded"],
+            values=["sqlite", "postgresql", "mariadb", "mysql", "embedded"],
             variable=self.backend_var,
             command=self._on_backend_change,
         )
@@ -322,15 +342,23 @@ class RealViewApp(ctk.CTk):
 
     def _on_backend_change(self, choice):
         hints = {
-            "sqlite": "Archivo local data/realview.db — sin servidor externo. Power BI DirectQuery NO disponible.",
-            "postgresql": "Servidor PostgreSQL externo. Power BI DirectQuery SI disponible.",
-            "embedded": "PostgreSQL portatil auto-gestionado (requiere binarios en pg/). DirectQuery SI disponible.",
+            "sqlite": "Archivo local data/realview.db — sin servidor externo. DirectQuery NO disponible.",
+            "postgresql": "Servidor PostgreSQL externo. DirectQuery y REST API disponibles.",
+            "mariadb": "Servidor MariaDB. REST API disponible. Puerto default: 3306.",
+            "mysql": "Servidor MySQL. REST API disponible. Puerto default: 3306.",
+            "embedded": "PostgreSQL portatil auto-gestionado (requiere binarios en pg/). DirectQuery y REST API disponibles.",
         }
         self.backend_hint.configure(text=hints.get(choice, ""))
         if choice == "sqlite":
             self._pg_fields.pack_forget()
         else:
             self._pg_fields.pack(padx=10, pady=5, fill="x")
+            if choice in ("mariadb", "mysql"):
+                self.pg_port_entry.delete(0, "end")
+                self.pg_port_entry.insert(0, "3306")
+            elif choice == "postgresql":
+                self.pg_port_entry.delete(0, "end")
+                self.pg_port_entry.insert(0, "5432")
 
     def _test_connection(self):
         self.test_btn.configure(state="disabled", text="⏳  Probando...")
@@ -339,7 +367,7 @@ class RealViewApp(ctk.CTk):
 
         backend = self.backend_var.get()
         self.config_data["database"]["backend"] = backend
-        if backend in ("postgresql", "embedded"):
+        if backend in ("postgresql", "embedded", "mariadb", "mysql"):
             self.config_data["database"]["host"] = self.pg_host_entry.get().strip() or "localhost"
             self.config_data["database"]["port"] = int(self.pg_port_entry.get().strip() or "5432")
             self.config_data["database"]["name"] = self.pg_db_entry.get().strip() or "realview"
@@ -368,7 +396,7 @@ class RealViewApp(ctk.CTk):
         self.update()
 
         backend = self.backend_var.get()
-        if backend in ("postgresql", "embedded"):
+        if backend in ("postgresql", "embedded", "mariadb", "mysql"):
             self.config_data["database"]["host"] = self.pg_host_entry.get().strip() or "localhost"
             self.config_data["database"]["port"] = int(self.pg_port_entry.get().strip() or "5432")
             self.config_data["database"]["name"] = self.pg_db_entry.get().strip() or "realview"

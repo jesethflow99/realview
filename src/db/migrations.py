@@ -17,6 +17,8 @@ def ensure_schema(engine=None, config: dict | None = None):
 
     if _is_sqlite(engine):
         return
+    if "mysql" in str(engine.url) or "mariadb" in str(engine.url):
+        return
 
     schema = config["database"].get("schema", "public")
     with engine.connect() as conn:
