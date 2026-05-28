@@ -80,7 +80,7 @@ class RealViewApp(ctk.CTk):
 
         self._try_connect()
 
-        self.show_frame("setup" if not self.connected else "dashboard")
+        self.show_frame("database" if not self.connected else "dashboard")
 
     def _update_status(self, connected: bool, backend: str = ""):
         self.connected = connected
@@ -218,7 +218,7 @@ class RealViewApp(ctk.CTk):
 
     def _build_main_area(self):
         self.frames = {}
-        for name in ("setup", "dashboard", "upload", "logs", "database", "settings"):
+        for name in ("database", "dashboard", "upload", "logs", "settings"):
             frame = ctk.CTkFrame(self)
             self.frames[name] = frame
             frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
@@ -235,7 +235,7 @@ class RealViewApp(ctk.CTk):
             else:
                 btn.configure(fg_color="transparent")
 
-        if name == "setup":
+        if name == "database":
             self._render_setup()
         elif name == "dashboard":
             self._render_dashboard()
@@ -243,8 +243,6 @@ class RealViewApp(ctk.CTk):
             self._render_upload()
         elif name == "logs":
             self._render_logs()
-        elif name == "database":
-            self._render_setup()
         elif name == "settings":
             self._render_settings()
 
@@ -254,8 +252,8 @@ class RealViewApp(ctk.CTk):
 
     # ── SETUP (Database connection screen) ─────────
     def _render_setup(self):
-        self._clear_frame(self.frames["setup"])
-        f = self.frames["setup"]
+        self._clear_frame(self.frames["database"])
+        f = self.frames["database"]
         f.grid_columnconfigure(0, weight=1)
 
         header = ctk.CTkLabel(f, text="🔌 Base de Datos", font=ctk.CTkFont(size=22, weight="bold"))
