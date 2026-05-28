@@ -39,7 +39,7 @@ def scheduled_etl(config: dict):
 
 
 def start_scheduler(config: dict, engine=None):
-    run_migrations(engine)
+    run_migrations(engine, config)
     scheduler = BackgroundScheduler()
     interval = config["scheduler"].get("interval_minutes", 5)
 

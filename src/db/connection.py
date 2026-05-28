@@ -1,4 +1,5 @@
 import sys
+import traceback
 from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -18,13 +19,20 @@ def load_config(path: str = "config/settings.toml") -> dict:
             bundled = Path(sys._MEIPASS) / path
             if bundled.exists():
                 path = str(bundled)
+        last_err = None
         for enc in ["utf-8", "cp1252", "latin-1"]:
             try:
                 with open(path, "r", encoding=enc) as f:
                     _config = toml_parser.loads(f.read())
                 break
-            except (UnicodeDecodeError, ValueError):
+            except (UnicodeDecodeError, ValueError) as e:
+                last_err = e
                 continue
+        if _config is None:
+            print(f"[FATAL] Could not parse config {path}")
+            print(f"[FATAL] Last error: {last_err}")
+            traceback.print_stack()
+            _config = {"database": {"backend": "sqlite", "sqlite_path": "data/realview.db", "schema": "public", "host": "localhost", "port": 5432, "name": "realview", "user": "postgres", "password": "postgres"}, "paths": {"input_dir": "data/input", "processed_dir": "data/processed", "rejected_dir": "data/rejected"}, "etl": {"batch_size": 1000, "idempotent": True}, "scheduler": {"enabled": True, "interval_minutes": 5}, "watcher": {"enabled": True, "patterns": ["*.csv", "*.xlsx", "*.xls", "*.json"]}, "logging": {"level": "INFO", "file": "logs/realview.log"}, "datasets": {}}
     return _config
 
 

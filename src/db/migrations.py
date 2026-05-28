@@ -12,14 +12,13 @@ def _is_sqlite(engine) -> bool:
 def ensure_schema(engine=None, config: dict | None = None):
     if engine is None:
         engine = get_engine(config)
-    if config is None:
-        config = load_config()
-
     if _is_sqlite(engine):
         return
     if "mysql" in str(engine.url) or "mariadb" in str(engine.url):
         return
 
+    if config is None:
+        config = load_config()
     schema = config["database"].get("schema", "public")
     with engine.connect() as conn:
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
@@ -27,11 +26,11 @@ def ensure_schema(engine=None, config: dict | None = None):
     logger.info(f"Schema '{schema}' ready")
 
 
-def run_migrations(engine=None):
+def run_migrations(engine=None, config=None):
     if engine is None:
-        engine = get_engine()
+        engine = get_engine(config)
 
-    ensure_schema(engine)
+    ensure_schema(engine, config)
     Base.metadata.create_all(engine)
     logger.info("Migrations applied — all tables ready")
 

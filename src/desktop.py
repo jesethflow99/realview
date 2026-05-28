@@ -131,7 +131,7 @@ class RealViewApp(ctk.CTk):
 
         try:
             self.engine = get_engine(self.config_data)
-            run_migrations(self.engine)
+            run_migrations(self.engine, self.config_data)
             backend_name = self.config_data["database"]["backend"]
             self._update_status(True, backend_name)
             self._start_watcher()
@@ -831,7 +831,7 @@ class RealViewApp(ctk.CTk):
 
     def _run_migrations_click(self):
         try:
-            run_migrations(self.engine)
+            run_migrations(self.engine, self.config_data)
             self._show_toast("✅ Migraciones completadas")
         except Exception as e:
             self._show_toast(f"❌ Error: {e}")

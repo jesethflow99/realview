@@ -42,7 +42,7 @@ def run_etl(args, config: dict):
 
 def run_daemon(config: dict):
     engine = get_engine(config)
-    run_migrations(engine)
+    run_migrations(engine, config)
     observers = []
     scheduler = None
 
@@ -114,7 +114,7 @@ def main():
     elif args.command == "api":
         from src.api.server import start_api_server
         engine = get_engine(config)
-        run_migrations(engine)
+        run_migrations(engine, config)
         print(f"REST API starting on http://{args.host}:{args.port}/api/docs")
         start_api_server(engine, config, host=args.host, port=args.port)
         import signal as sig
