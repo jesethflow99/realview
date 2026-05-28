@@ -1,6 +1,6 @@
 [database]
 # backend: "sqlite" (dev), "postgresql" (server), o "embedded" (portátil auto-gestionado)
-backend = "postgresql"
+backend = "sqlite"
 # Solo para PostgreSQL:
 host = "localhost"
 port = 5432

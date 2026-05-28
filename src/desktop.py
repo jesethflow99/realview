@@ -67,15 +67,10 @@ class RealViewApp(ctk.CTk):
         self._embedded_pg = None
         self._watcher_observer = None
         self._scheduler = None
+        self.engine = None
+        self.connected = False
 
         self.config_data = load_config()
-        self._resolve_backend()
-
-        self.engine = get_engine(self.config_data)
-        run_migrations(self.engine)
-
-        self._start_watcher()
-        self._start_scheduler()
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -83,57 +78,75 @@ class RealViewApp(ctk.CTk):
         self._build_sidebar()
         self._build_main_area()
 
-        self.show_frame("dashboard")
+        self._try_connect()
 
-    def _resolve_backend(self):
-        backend = self.config_data["database"].get("backend", "sqlite")
-        if backend != "embedded":
-            return
+        self.show_frame("setup" if not self.connected else "dashboard")
 
-        from src.db.postgres_embedded import EmbeddedPostgres
-        app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path.cwd()
-        port = self.config_data["database"].get("port", 5432)
-        emb = EmbeddedPostgres(app_dir, port=port)
-
-        if emb.is_available:
-            self._embedded_pg = emb
-            emb.start()
-            self.config_data["database"]["backend"] = "postgresql"
-            self.config_data["database"]["host"] = "localhost"
-            self.config_data["database"]["port"] = port
-            self.config_data["database"]["name"] = emb.db_name
-            self.config_data["database"]["user"] = emb.db_user
-            self.config_data["database"]["password"] = emb.db_pass
-            return
-
-        sys_pg = _detect_system_postgres()
-        if sys_pg:
-            print(f"System PostgreSQL detected ({sys_pg['pg_isready']}), switching to postgresql backend")
-            self.config_data["database"]["backend"] = "postgresql"
-            return
-
-        choice = messagebox.askyesno(
-            "PostgreSQL no encontrado",
-            "No se encontró PostgreSQL en el sistema ni descargado.\n\n"
-            "¿Quieres usar SQLite (modo desarrollo) mientras tanto?\n\n"
-            "  • Sí = usar SQLite (sin Power BI DirectQuery)\n"
-            "  • No  = cancelar y configurar PostgreSQL manualmente"
-        )
-        if choice:
-            self.config_data["database"]["backend"] = "sqlite"
-            print("Falling back to SQLite")
+    def _update_status(self, connected: bool, backend: str = ""):
+        self.connected = connected
+        if connected:
+            self.status_dot.configure(text_color="green")
+            backend_label = {"sqlite": "SQLite", "postgresql": "PostgreSQL", "embedded": "PostgreSQL Embebido"}.get(backend, backend)
+            self.status_label.configure(text=f"Conectado — {backend_label}")
         else:
-            messagebox.showinfo(
-                "PostgreSQL requerido",
-                "Instala PostgreSQL desde: https://www.postgresql.org/download/\n"
-                "O descarga los binarios portátiles y colócalos en la carpeta pg/\n"
-                "Luego edita config/settings.toml"
-            )
-            self.destroy()
-            sys.exit(1)
+            self.status_dot.configure(text_color="red")
+            self.status_label.configure(text="Desconectado")
+
+    def _try_connect(self, backend_override: str | None = None) -> bool:
+        backend = backend_override or self.config_data["database"].get("backend", "sqlite")
+        old_backend = self.config_data["database"].get("backend", "")
+
+        if backend == "embedded":
+            from src.db.postgres_embedded import EmbeddedPostgres
+            app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path.cwd()
+            port = self.config_data["database"].get("port", 5432)
+            emb = EmbeddedPostgres(app_dir, port=port)
+            if emb.is_available:
+                try:
+                    if self._embedded_pg:
+                        self._embedded_pg.stop()
+                    self._embedded_pg = emb
+                    emb.start()
+                    self.config_data["database"]["backend"] = "embedded"
+                    self.config_data["database"]["host"] = "localhost"
+                    self.config_data["database"]["port"] = port
+                    self.config_data["database"]["name"] = emb.db_name
+                    self.config_data["database"]["user"] = emb.db_user
+                    self.config_data["database"]["password"] = emb.db_pass
+                except Exception as e:
+                    print(f"[ERROR] Embedded PG: {e}")
+                    self._embedded_pg = None
+                    self.engine = None
+                    self._update_status(False)
+                    return False
+
+        self.config_data["database"]["backend"] = backend
+
+        if backend_override and old_backend != backend_override:
+            from src.db.connection import _config
+            import src.db.connection as conn_module
+            conn_module._config = None
+
+        try:
+            self.engine = get_engine(self.config_data)
+            run_migrations(self.engine)
+            backend_name = self.config_data["database"]["backend"]
+            self._update_status(True, backend_name)
+            self._start_watcher()
+            self._start_scheduler()
+            return True
+        except Exception as e:
+            print(f"[ERROR] Connection failed: {e}")
+            self.engine = None
+            self._update_status(False)
+            return False
 
     def _start_watcher(self):
+        if not self.engine:
+            return
         if not self.config_data.get("watcher", {}).get("enabled", True):
+            return
+        if self._watcher_observer:
             return
         try:
             from src.watcher.file_watcher import start_watcher
@@ -143,7 +156,11 @@ class RealViewApp(ctk.CTk):
             print(f"[WARN] Watcher no pudo iniciar: {e}")
 
     def _start_scheduler(self):
+        if not self.engine:
+            return
         if not self.config_data.get("scheduler", {}).get("enabled", True):
+            return
+        if self._scheduler:
             return
         try:
             from src.scheduler.scheduler import start_scheduler
@@ -159,7 +176,7 @@ class RealViewApp(ctk.CTk):
     def _build_sidebar(self):
         self.sidebar = ctk.CTkFrame(self, corner_radius=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
-        self.sidebar.grid_rowconfigure(5, weight=1)
+        self.sidebar.grid_rowconfigure(6, weight=1)
 
         logo = ctk.CTkLabel(self.sidebar, text="📊 RealView", font=ctk.CTkFont(size=22, weight="bold"))
         logo.grid(row=0, column=0, padx=20, pady=(25, 5))
@@ -172,6 +189,7 @@ class RealViewApp(ctk.CTk):
             ("dashboard", "📈  Dashboard"),
             ("upload",    "📤  Subir archivo"),
             ("logs",      "📋  ETL Logs"),
+            ("database",  "🔌  Base de datos"),
             ("settings",  "⚙️  Configuración"),
         ]
 
@@ -200,7 +218,7 @@ class RealViewApp(ctk.CTk):
 
     def _build_main_area(self):
         self.frames = {}
-        for name in ("dashboard", "upload", "logs", "settings"):
+        for name in ("setup", "dashboard", "upload", "logs", "database", "settings"):
             frame = ctk.CTkFrame(self)
             self.frames[name] = frame
             frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
@@ -217,12 +235,16 @@ class RealViewApp(ctk.CTk):
             else:
                 btn.configure(fg_color="transparent")
 
-        if name == "dashboard":
+        if name == "setup":
+            self._render_setup()
+        elif name == "dashboard":
             self._render_dashboard()
         elif name == "upload":
             self._render_upload()
         elif name == "logs":
             self._render_logs()
+        elif name == "database":
+            self._render_setup()
         elif name == "settings":
             self._render_settings()
 
@@ -230,7 +252,178 @@ class RealViewApp(ctk.CTk):
         for w in frame.winfo_children():
             w.destroy()
 
-    # ── DASHBOARD ──────────────────────────────────
+    # ── SETUP (Database connection screen) ─────────
+    def _render_setup(self):
+        self._clear_frame(self.frames["setup"])
+        f = self.frames["setup"]
+        f.grid_columnconfigure(0, weight=1)
+
+        header = ctk.CTkLabel(f, text="🔌 Base de Datos", font=ctk.CTkFont(size=22, weight="bold"))
+        header.pack(pady=(40, 5))
+
+        sub = ctk.CTkLabel(f, text="Selecciona el servidor donde se expondran los datos", font=ctk.CTkFont(size=13), text_color="gray")
+        sub.pack(pady=(0, 30))
+
+        card = ctk.CTkFrame(f, corner_radius=12, fg_color=("gray95", "gray17"))
+        card.pack(padx=40, pady=5, fill="x")
+
+        ctk.CTkLabel(card, text="Tipo de backend", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=20, pady=(15, 5))
+
+        self.backend_var = ctk.StringVar(value=self.config_data["database"].get("backend", "sqlite"))
+        backend_menu = ctk.CTkOptionMenu(
+            card,
+            values=["sqlite", "postgresql", "embedded"],
+            variable=self.backend_var,
+            command=self._on_backend_change,
+        )
+        backend_menu.pack(padx=20, pady=5, fill="x")
+
+        self.backend_hint = ctk.CTkLabel(card, text="", font=ctk.CTkFont(size=11), text_color="gray")
+        self.backend_hint.pack(anchor="w", padx=20, pady=(2, 10))
+
+        self._pg_fields = ctk.CTkFrame(card, fg_color="transparent")
+        self._pg_fields.grid_columnconfigure((0, 1), weight=1)
+
+        ctk.CTkLabel(self._pg_fields, text="Host").grid(row=0, column=0, padx=20, pady=(5, 0), sticky="w")
+        ctk.CTkLabel(self._pg_fields, text="Puerto").grid(row=0, column=1, padx=20, pady=(5, 0), sticky="w")
+        self.pg_host_entry = ctk.CTkEntry(self._pg_fields, placeholder_text="localhost")
+        self.pg_host_entry.grid(row=1, column=0, padx=20, pady=(2, 10), sticky="ew")
+        self.pg_host_entry.insert(0, self.config_data["database"].get("host", "localhost"))
+        self.pg_port_entry = ctk.CTkEntry(self._pg_fields, placeholder_text="5432", width=80)
+        self.pg_port_entry.grid(row=1, column=1, padx=20, pady=(2, 10), sticky="w")
+        self.pg_port_entry.insert(0, str(self.config_data["database"].get("port", 5432)))
+
+        ctk.CTkLabel(self._pg_fields, text="Base de datos").grid(row=2, column=0, padx=20, pady=(5, 0), sticky="w")
+        ctk.CTkLabel(self._pg_fields, text="Usuario").grid(row=2, column=1, padx=20, pady=(5, 0), sticky="w")
+        self.pg_db_entry = ctk.CTkEntry(self._pg_fields, placeholder_text="realview")
+        self.pg_db_entry.grid(row=3, column=0, padx=20, pady=(2, 10), sticky="ew")
+        self.pg_db_entry.insert(0, self.config_data["database"].get("name", "realview"))
+        self.pg_user_entry = ctk.CTkEntry(self._pg_fields, placeholder_text="postgres")
+        self.pg_user_entry.grid(row=3, column=1, padx=20, pady=(2, 10), sticky="ew")
+        self.pg_user_entry.insert(0, self.config_data["database"].get("user", "postgres"))
+
+        ctk.CTkLabel(self._pg_fields, text="Contrasena").grid(row=4, column=0, padx=20, pady=(5, 0), sticky="w")
+        self.pg_pass_entry = ctk.CTkEntry(self._pg_fields, placeholder_text="postgres", show="*")
+        self.pg_pass_entry.grid(row=4, column=1, padx=20, pady=(2, 10), sticky="ew")
+        self.pg_pass_entry.insert(0, self.config_data["database"].get("password", "postgres"))
+
+        self._on_backend_change(self.backend_var.get())
+
+        btn_frame = ctk.CTkFrame(f, fg_color="transparent")
+        btn_frame.pack(padx=40, pady=(20, 10), fill="x")
+        btn_frame.grid_columnconfigure((0, 1), weight=1)
+
+        self.test_btn = ctk.CTkButton(btn_frame, text="🔍  Probar conexion", command=self._test_connection, height=40)
+        self.test_btn.grid(row=0, column=0, padx=5)
+
+        self.connect_btn = ctk.CTkButton(btn_frame, text="✅  Conectar y continuar", command=self._connect_and_go, height=40)
+        self.connect_btn.grid(row=0, column=1, padx=5)
+
+        self.setup_status = ctk.CTkLabel(f, text="", font=ctk.CTkFont(size=13))
+        self.setup_status.pack(pady=(5, 40))
+
+    def _on_backend_change(self, choice):
+        hints = {
+            "sqlite": "Archivo local data/realview.db — sin servidor externo. Power BI DirectQuery NO disponible.",
+            "postgresql": "Servidor PostgreSQL externo. Power BI DirectQuery SI disponible.",
+            "embedded": "PostgreSQL portatil auto-gestionado (requiere binarios en pg/). DirectQuery SI disponible.",
+        }
+        self.backend_hint.configure(text=hints.get(choice, ""))
+        if choice == "sqlite":
+            self._pg_fields.pack_forget()
+        else:
+            self._pg_fields.pack(padx=10, pady=5, fill="x")
+
+    def _test_connection(self):
+        self.test_btn.configure(state="disabled", text="⏳  Probando...")
+        self.setup_status.configure(text="", text_color="gray")
+        self.update()
+
+        backend = self.backend_var.get()
+        self.config_data["database"]["backend"] = backend
+        if backend in ("postgresql", "embedded"):
+            self.config_data["database"]["host"] = self.pg_host_entry.get().strip() or "localhost"
+            self.config_data["database"]["port"] = int(self.pg_port_entry.get().strip() or "5432")
+            self.config_data["database"]["name"] = self.pg_db_entry.get().strip() or "realview"
+            self.config_data["database"]["user"] = self.pg_user_entry.get().strip() or "postgres"
+            self.config_data["database"]["password"] = self.pg_pass_entry.get().strip() or "postgres"
+
+        def task():
+            try:
+                ok = self._try_connect()
+                if ok:
+                    self.after(0, lambda: self.setup_status.configure(
+                        text="✅ Conexion exitosa!", text_color="green"))
+                else:
+                    self.after(0, lambda: self.setup_status.configure(
+                        text="❌ No se pudo conectar. Revisa los datos.", text_color="red"))
+            except Exception as e:
+                self.after(0, lambda: self.setup_status.configure(
+                    text=f"❌ Error: {str(e)[:100]}", text_color="red"))
+            finally:
+                self.after(0, lambda: self.test_btn.configure(state="normal", text="🔍  Probar conexion"))
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _connect_and_go(self):
+        self.connect_btn.configure(state="disabled", text="⏳  Conectando...")
+        self.update()
+
+        backend = self.backend_var.get()
+        if backend in ("postgresql", "embedded"):
+            self.config_data["database"]["host"] = self.pg_host_entry.get().strip() or "localhost"
+            self.config_data["database"]["port"] = int(self.pg_port_entry.get().strip() or "5432")
+            self.config_data["database"]["name"] = self.pg_db_entry.get().strip() or "realview"
+            self.config_data["database"]["user"] = self.pg_user_entry.get().strip() or "postgres"
+            self.config_data["database"]["password"] = self.pg_pass_entry.get().strip() or "postgres"
+
+        def task():
+            try:
+                ok = self._try_connect()
+                self.after(0, lambda: self._connect_result(ok))
+            except Exception as e:
+                self.after(0, lambda: self.setup_status.configure(
+                    text=f"❌ Error: {str(e)[:100]}", text_color="red"))
+                self.after(0, lambda: self.connect_btn.configure(state="normal", text="✅  Conectar y continuar"))
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _connect_result(self, ok):
+        self.connect_btn.configure(state="normal", text="✅  Conectar y continuar")
+        if ok:
+            self._save_config_to_file()
+            self.show_frame("dashboard")
+        else:
+            self.setup_status.configure(
+                text="❌ No se pudo conectar. Revisa los datos o elige otro backend.", text_color="red")
+
+    def _save_config_to_file(self):
+        db = self.config_data["database"]
+        lines = []
+        lines.append("[database]")
+        lines.append(f"backend = \"{db.get('backend', 'sqlite')}\"")
+        if db.get("backend") != "sqlite":
+            lines.append(f"host = \"{db.get('host', 'localhost')}\"")
+            lines.append(f"port = {db.get('port', 5432)}")
+            lines.append(f"name = \"{db.get('name', 'realview')}\"")
+            lines.append(f"user = \"{db.get('user', 'postgres')}\"")
+            lines.append(f"password = \"{db.get('password', 'postgres')}\"")
+        lines.append(f"schema = \"{db.get('schema', 'public')}\"")
+        lines.append(f"sqlite_path = \"{db.get('sqlite_path', 'data/realview.db')}\"")
+
+        toml_path = Path("config/settings.toml")
+        if toml_path.exists():
+            content = toml_path.read_text()
+            import re
+            new_content = re.sub(r'^\s*backend\s*=\s*"[^"]*"', f'backend = "{db.get("backend", "sqlite")}"', content, flags=re.MULTILINE)
+            if "backend" in new_content:
+                toml_path.write_text(new_content)
+                return
+
+        config_dir = Path("config")
+        config_dir.mkdir(exist_ok=True)
+        existing = toml_path.read_text() if toml_path.exists() else ""
+        toml_path.write_text(existing + "\n" + "\n".join(lines) + "\n")
 
     def _render_dashboard(self):
         self._clear_frame(self.frames["dashboard"])
