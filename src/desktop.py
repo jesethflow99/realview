@@ -67,11 +67,11 @@ class RealViewApp(ctk.CTk):
         self._embedded_pg = None
         self._watcher_observer = None
         self._scheduler = None
-        self._api_port = self.config_data.get("api", {}).get("port", 8000)
         self.engine = None
         self.connected = False
 
         self.config_data = load_config()
+        self._api_port = self.config_data.get("api", {}).get("port", 8000)
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
