@@ -25,7 +25,7 @@ try {
 
 # 2. Check Tkinter
 Write-Host '[2/6] Verificando Tkinter...' -ForegroundColor Yellow
-$tk = python -c 'import tkinter; print("ok")' 2>&1
+$tk = python -c "import tkinter; print('ok')" 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host '[ERROR] Tkinter no disponible. Reinstala Python con tcl/tk' -ForegroundColor Red
     pause
