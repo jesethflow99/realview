@@ -27,7 +27,7 @@ def scheduled_etl(config: dict):
         return
 
     for fpath in files:
-        if fpath.suffix.lower() not in (".csv", ".xlsx", ".xls", ".json"):
+        if fpath.suffix.lower() not in (".csv", ".xlsx", ".xls", ".json", ".parquet", ".tsv", ".txt"):
             continue
         logger.info(f"Scheduler processing: {fpath.name}")
         result = run_pipeline(fpath, engine=engine, session=session, config=config)
@@ -38,8 +38,8 @@ def scheduled_etl(config: dict):
             logger.info(f"Moved {fpath.name} -> processed/")
 
 
-def start_scheduler(config: dict):
-    run_migrations()
+def start_scheduler(config: dict, engine=None):
+    run_migrations(engine)
     scheduler = BackgroundScheduler()
     interval = config["scheduler"].get("interval_minutes", 5)
 

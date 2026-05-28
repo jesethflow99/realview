@@ -74,7 +74,7 @@ def load(
             conn.execute(text(f"DROP TABLE IF EXISTS {temp_table}"))
 
         rows_after = pd.read_sql(f"SELECT COUNT(*) as cnt FROM {qualified}", engine).iloc[0]["cnt"]
-        loaded = rows_after - rows_before
+        loaded = int(rows_after - rows_before)
         logger.info(f"Upserted {len(df_to_load)} rows into {table_name} ({loaded} new, {len(df_to_load) - loaded} updated)")
         return loaded
     else:
@@ -87,4 +87,4 @@ def load(
             chunksize=batch_size,
         )
         logger.info(f"Appended {len(df_to_load)} rows to {table_name}")
-        return len(df_to_load)
+        return int(len(df_to_load))

@@ -49,6 +49,22 @@ def make_etl_config(filename: str, config: dict) -> dict | None:
     return None
 
 
+def _add_pk_if_id_column(engine, table_name: str, columns: list[str], schema: str = "public"):
+    from sqlalchemy import text as sa_text
+    id_cols = [c for c in columns if c.endswith("_id") or c == "id"]
+    if not id_cols:
+        return
+    pk_col = id_cols[0]
+    is_pg = "postgresql" in str(engine.url)
+    qualified = table_name if "sqlite" in str(engine.url) else f"{schema}.{table_name}"
+    try:
+        with engine.begin() as conn:
+            conn.execute(sa_text(f"ALTER TABLE {qualified} ADD PRIMARY KEY ({pk_col})"))
+        logger.info(f"Set {pk_col} as primary key for '{table_name}' (UPSERT enabled)")
+    except Exception as e:
+        logger.debug(f"Could not add PK on {pk_col} for {table_name}: {e}")
+
+
 def run_pipeline(
     filepath: str | Path,
     engine=None,
@@ -56,6 +72,7 @@ def run_pipeline(
     config: dict | None = None,
     target_table: str | None = None,
     dataset_name: str | None = None,
+    force: bool = False,
 ) -> dict:
     if config is None:
         config = load_config()
@@ -74,7 +91,7 @@ def run_pipeline(
     if target_table is None and etl_cfg:
         target_table = etl_cfg["table"]
     if target_table is None:
-        target_table = filepath.stem.lower().replace(" ", "_")
+        target_table = filepath.stem.lower().replace(" ", "_").replace(".", "_")
 
     if dataset_name is None and etl_cfg:
         dataset_name = etl_cfg["dataset"]
@@ -86,7 +103,7 @@ def run_pipeline(
         .filter(ETLJob.file_hash == file_hash, ETLJob.status == "success")
         .first()
     )
-    if existing_job and config.get("etl", {}).get("idempotent", True):
+    if not force and existing_job and config.get("etl", {}).get("idempotent", True):
         logger.info(f"File {filename} already processed (hash: {file_hash[:12]}...), skipping")
         return {"status": "skipped", "reason": "already processed", "file": filename}
 
@@ -111,6 +128,7 @@ def run_pipeline(
         if not table_exists(engine, target_table):
             logger.info(f"Table '{target_table}' doesn't exist yet, creating from data")
             df.head(0).to_sql(target_table, engine, if_exists="replace", index=False)
+            _add_pk_if_id_column(engine, target_table, df.columns.tolist(), schema=config["database"].get("schema", "public"))
 
         rows_loaded = load(
             df,

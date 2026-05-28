@@ -1,8 +1,10 @@
+import shutil
+import subprocess
 import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
 import pandas as pd
@@ -16,6 +18,45 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("green")
 
 
+def _detect_system_postgres() -> dict | None:
+    candidates = []
+    if sys.platform == "win32":
+        pg_base = Path("C:/Program Files/PostgreSQL")
+        if pg_base.exists():
+            for ver_dir in sorted(pg_base.iterdir(), reverse=True):
+                pg_isready = ver_dir / "bin" / "pg_isready.exe"
+                if pg_isready.exists():
+                    candidates.append(pg_isready)
+    else:
+        for path in ["/usr/bin/pg_isready", "/usr/local/bin/pg_isready"]:
+            if Path(path).exists():
+                candidates.append(Path(path))
+
+    for cmd in candidates:
+        try:
+            result = subprocess.run(
+                [str(cmd), "-q", "-h", "localhost", "-p", "5432"],
+                capture_output=True, timeout=5,
+            )
+            if result.returncode == 0:
+                return {"pg_isready": str(cmd)}
+        except Exception:
+            continue
+
+    for cmd_name in ["pg_isready", "psql"]:
+        try:
+            result = subprocess.run(
+                [cmd_name, "-q", "-h", "localhost", "-p", "5432"],
+                capture_output=True, timeout=5,
+            )
+            if result.returncode == 0:
+                return {"pg_isready": cmd_name}
+        except Exception:
+            continue
+
+    return None
+
+
 class RealViewApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -24,14 +65,17 @@ class RealViewApp(ctk.CTk):
         self.geometry("1200x750")
         self.minsize(900, 600)
         self._embedded_pg = None
+        self._watcher_observer = None
+        self._scheduler = None
 
         self.config_data = load_config()
-
-        if self.config_data["database"].get("backend") == "embedded":
-            self._init_embedded_pg()
+        self._resolve_backend()
 
         self.engine = get_engine(self.config_data)
         run_migrations(self.engine)
+
+        self._start_watcher()
+        self._start_scheduler()
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -41,20 +85,71 @@ class RealViewApp(ctk.CTk):
 
         self.show_frame("dashboard")
 
-    def _init_embedded_pg(self):
-        from src.db.postgres_embedded import EmbeddedPostgres
+    def _resolve_backend(self):
+        backend = self.config_data["database"].get("backend", "sqlite")
+        if backend != "embedded":
+            return
 
+        from src.db.postgres_embedded import EmbeddedPostgres
         app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path.cwd()
         port = self.config_data["database"].get("port", 5432)
+        emb = EmbeddedPostgres(app_dir, port=port)
 
-        self._embedded_pg = EmbeddedPostgres(app_dir, port=port)
-        self._embedded_pg.start()
-        self.config_data["database"]["backend"] = "postgresql"
-        self.config_data["database"]["host"] = "localhost"
-        self.config_data["database"]["port"] = port
-        self.config_data["database"]["name"] = self._embedded_pg.db_name
-        self.config_data["database"]["user"] = self._embedded_pg.db_user
-        self.config_data["database"]["password"] = self._embedded_pg.db_pass
+        if emb.is_available:
+            self._embedded_pg = emb
+            emb.start()
+            self.config_data["database"]["backend"] = "postgresql"
+            self.config_data["database"]["host"] = "localhost"
+            self.config_data["database"]["port"] = port
+            self.config_data["database"]["name"] = emb.db_name
+            self.config_data["database"]["user"] = emb.db_user
+            self.config_data["database"]["password"] = emb.db_pass
+            return
+
+        sys_pg = _detect_system_postgres()
+        if sys_pg:
+            print(f"System PostgreSQL detected ({sys_pg['pg_isready']}), switching to postgresql backend")
+            self.config_data["database"]["backend"] = "postgresql"
+            return
+
+        choice = messagebox.askyesno(
+            "PostgreSQL no encontrado",
+            "No se encontró PostgreSQL en el sistema ni descargado.\n\n"
+            "¿Quieres usar SQLite (modo desarrollo) mientras tanto?\n\n"
+            "  • Sí = usar SQLite (sin Power BI DirectQuery)\n"
+            "  • No  = cancelar y configurar PostgreSQL manualmente"
+        )
+        if choice:
+            self.config_data["database"]["backend"] = "sqlite"
+            print("Falling back to SQLite")
+        else:
+            messagebox.showinfo(
+                "PostgreSQL requerido",
+                "Instala PostgreSQL desde: https://www.postgresql.org/download/\n"
+                "O descarga los binarios portátiles y colócalos en la carpeta pg/\n"
+                "Luego edita config/settings.toml"
+            )
+            self.destroy()
+            sys.exit(1)
+
+    def _start_watcher(self):
+        if not self.config_data.get("watcher", {}).get("enabled", True):
+            return
+        try:
+            from src.watcher.file_watcher import start_watcher
+            Path(self.config_data["paths"]["input_dir"]).mkdir(parents=True, exist_ok=True)
+            self._watcher_observer = start_watcher(self.config_data, self.engine)
+        except Exception as e:
+            print(f"[WARN] Watcher no pudo iniciar: {e}")
+
+    def _start_scheduler(self):
+        if not self.config_data.get("scheduler", {}).get("enabled", True):
+            return
+        try:
+            from src.scheduler.scheduler import start_scheduler
+            self._scheduler = start_scheduler(self.config_data, engine=self.engine)
+        except Exception as e:
+            print(f"[WARN] Scheduler no pudo iniciar: {e}")
 
     def _setup_grid(self):
         self.grid_columnconfigure(0, weight=0, minsize=220)
@@ -268,7 +363,13 @@ class RealViewApp(ctk.CTk):
     def _select_file(self):
         path = filedialog.askopenfilename(
             title="Seleccionar archivo de datos",
-            filetypes=[("Archivos soportados", "*.csv *.xlsx *.xls *.json"), ("CSV", "*.csv"), ("Excel", "*.xlsx *.xls"), ("JSON", "*.json")]
+            filetypes=[
+                ("Todos los soportados", "*.csv *.tsv *.txt *.xlsx *.xls *.json *.parquet"),
+                ("CSV / TSV / TXT", "*.csv *.tsv *.txt"),
+                ("Excel", "*.xlsx *.xls"),
+                ("JSON", "*.json"),
+                ("Parquet", "*.parquet"),
+            ]
         )
         if not path:
             return
@@ -280,11 +381,16 @@ class RealViewApp(ctk.CTk):
         try:
             ext = Path(path).suffix.lower()
             if ext == ".csv":
-                self.upload_df = pd.read_csv(path, nrows=100)
+                self.upload_df = pd.read_csv(path, nrows=100, on_bad_lines="skip")
+            elif ext in (".tsv", ".txt"):
+                self.upload_df = pd.read_csv(path, sep="\t", nrows=100, on_bad_lines="skip")
             elif ext in (".xlsx", ".xls"):
                 self.upload_df = pd.read_excel(path, nrows=100)
             elif ext == ".json":
                 self.upload_df = pd.read_json(path)
+            elif ext == ".parquet":
+                self.upload_df = pd.read_parquet(path)
+                self.upload_df = self.upload_df.head(100)
             self._populate_preview(self.upload_df)
             self.preview_info.configure(text=f"{len(self.upload_df)} filas × {len(self.upload_df.columns)} columnas (vista previa)")
             self.load_btn.configure(state="normal")
@@ -316,12 +422,19 @@ class RealViewApp(ctk.CTk):
 
         def task():
             try:
+                input_dir = Path(self.config_data["paths"]["input_dir"])
+                input_dir.mkdir(parents=True, exist_ok=True)
+                dest = input_dir / Path(self.upload_filepath).name
+                if not dest.exists() or not Path(self.upload_filepath).samefile(dest):
+                    shutil.copy2(self.upload_filepath, dest)
+
                 result = run_pipeline(
-                    self.upload_filepath,
+                    dest,
                     engine=self.engine,
                     config=self.config_data,
                     target_table=table,
                     dataset_name=Path(self.upload_filepath).stem,
+                    force=True,
                 )
                 self.after(0, lambda: self._load_done(result))
             except Exception as e:
@@ -503,6 +616,11 @@ class RealViewApp(ctk.CTk):
         label.pack(expand=True, fill="both", padx=20, pady=15)
 
     def on_close(self):
+        if self._watcher_observer:
+            self._watcher_observer.stop()
+            self._watcher_observer.join()
+        if self._scheduler:
+            self._scheduler.shutdown(wait=False)
         if self._embedded_pg:
             self._embedded_pg.stop()
         self.destroy()

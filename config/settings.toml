@@ -1,6 +1,6 @@
 [database]
 # backend: "sqlite" (dev), "postgresql" (server), o "embedded" (portátil auto-gestionado)
-backend = "embedded"
+backend = "postgresql"
 # Solo para PostgreSQL:
 host = "localhost"
 port = 5432
@@ -26,7 +26,7 @@ interval_minutes = 5
 
 [watcher]
 enabled = true
-patterns = ["*.csv", "*.xlsx", "*.xls", "*.json"]
+patterns = ["*.csv", "*.tsv", "*.txt", "*.xlsx", "*.xls", "*.json", "*.parquet"]
 
 [logging]
 level = "INFO"

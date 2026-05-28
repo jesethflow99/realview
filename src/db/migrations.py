@@ -40,10 +40,13 @@ def table_exists(engine, table_name: str) -> bool:
 
 
 def create_dynamic_table(engine, table_name: str, columns: list[dict]):
-    from sqlalchemy import Table, Column as SAColumn, MetaData, DateTime, Float, Integer, String, Text
+    from sqlalchemy import Table, Column as SAColumn, MetaData, DateTime, Float, Integer, String, Text, UniqueConstraint
+    from sqlalchemy.dialects.postgresql import JSONB
 
     metadata = MetaData()
-    existing = [c["name"] for c in inspect(engine).get_columns(table_name)] if table_exists(engine, table_name) else []
+    inspector = inspect(engine)
+    existing = [c["name"] for c in inspector.get_columns(table_name)] if table_exists(engine, table_name) else []
+    existing_pks = inspector.get_pk_constraint(table_name).get("constrained_columns", []) if table_exists(engine, table_name) else []
 
     new_cols = []
     for col in columns:
@@ -56,10 +59,17 @@ def create_dynamic_table(engine, table_name: str, columns: list[dict]):
                 "datetime": DateTime(timezone=True),
             }
             col_type = type_map.get(col.get("type", "string"), String(500))
-            new_cols.append(SAColumn(col["name"], col_type, nullable=True))
+            nullable = col.get("nullable", True)
+            new_cols.append(SAColumn(col["name"], col_type, nullable=nullable))
 
     if new_cols:
         table = Table(table_name, metadata, *new_cols)
         with engine.begin() as conn:
             metadata.create_all(conn)
         logger.info(f"Added {len(new_cols)} columns to '{table_name}'")
+
+    if not existing_pks and not table_exists(engine, table_name):
+        id_cols = [c["name"] for c in columns if c["name"].endswith("_id") or c["name"] == "id"]
+        if id_cols:
+            pk_col = id_cols[0]
+            engine.execute(text(f"ALTER TABLE {table_name} ADD PRIMARY KEY ({pk_col})"))

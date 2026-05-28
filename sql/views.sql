@@ -64,7 +64,7 @@ SELECT
     client_name,
     departure_date,
     arrival_date,
-    EXTRACT(DAY FROM (arrival_date - departure_date)) AS transit_days,
+    (arrival_date - departure_date) AS transit_days,
     CASE
         WHEN status = 'delivered' THEN 100
         WHEN status = 'in_transit' THEN 50

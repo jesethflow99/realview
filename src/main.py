@@ -35,7 +35,7 @@ def run_etl(args, config: dict):
         print(f"Result: {result}")
     elif args.dir:
         for fpath in sorted(Path(args.dir).iterdir()):
-            if fpath.suffix.lower() in (".csv", ".xlsx", ".xls", ".json"):
+            if fpath.suffix.lower() in (".csv", ".xlsx", ".xls", ".json", ".parquet", ".tsv", ".txt"):
                 result = run_pipeline(fpath, config=config)
                 print(f"{fpath.name}: {result['status']}")
 
