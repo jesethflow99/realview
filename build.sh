@@ -46,7 +46,9 @@ pyinstaller \
     --hidden-import customtkinter \
     --hidden-import PIL \
     --hidden-import PIL._tkinter_finder \
-    --collect-all customtkinter \
+    --collect-submodules customtkinter \
+    --collect-data customtkinter \
+    --collect-all tkinter \
     src/desktop.py
 
 echo ""

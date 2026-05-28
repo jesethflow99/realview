@@ -79,18 +79,11 @@ if (-not $SkipPG) {
 # 6. Build with PyInstaller
 Write-Host '[6/6] Construyendo ejecutable...' -ForegroundColor Yellow
 
-$addData = 'config/settings.toml;config'
-if (Test-Path 'pg\pgsql\bin\pg_ctl.exe') {
-    $addData = 'config/settings.toml;config', 'pg;pgsql'
-}
-
-Write-Host '  PyInstaller empaquetando... (puede tomar varios minutos)' -ForegroundColor Gray
-
 $pyiArgs = @(
     '--name', 'RealView',
     '--onefile',
     '--windowed',
-    '--add-data', 'config/settings.toml;config',
+    '--add-data', "config/settings.toml;config",
     '--hidden-import', 'sqlalchemy',
     '--hidden-import', 'sqlalchemy.dialects.sqlite',
     '--hidden-import', 'sqlalchemy.dialects.postgresql',
@@ -100,7 +93,9 @@ $pyiArgs = @(
     '--hidden-import', 'customtkinter',
     '--hidden-import', 'PIL',
     '--hidden-import', 'PIL._tkinter_finder',
-    '--collect-all', 'customtkinter',
+    '--collect-submodules', 'customtkinter',
+    '--collect-data', 'customtkinter',
+    '--collect-all', 'tkinter',
     'src/desktop.py'
 )
 
