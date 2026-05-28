@@ -18,8 +18,13 @@ def load_config(path: str = "config/settings.toml") -> dict:
             bundled = Path(sys._MEIPASS) / path
             if bundled.exists():
                 path = str(bundled)
-        with open(path, "rb") as f:
-            _config = toml_parser.load(f)
+        for enc in ["utf-8", "cp1252", "latin-1"]:
+            try:
+                with open(path, "r", encoding=enc) as f:
+                    _config = toml_parser.loads(f.read())
+                break
+            except (UnicodeDecodeError, ValueError):
+                continue
     return _config
 
 
