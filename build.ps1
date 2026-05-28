@@ -79,6 +79,19 @@ if (-not $SkipPG) {
 # 6. Build with PyInstaller
 Write-Host '[6/6] Construyendo ejecutable...' -ForegroundColor Yellow
 
+# Force PyInstaller to use this Python's Tcl (fixes version mismatch)
+$pythonHome = & python -c "import sys; print(sys.base_prefix)" 2>&1 | Out-String
+$pythonHome = $pythonHome.Trim()
+$tclLib = Join-Path $pythonHome 'tcl\tcl8.6'
+$tkLib = Join-Path $pythonHome 'tcl\tk8.6'
+if (Test-Path $tclLib) {
+    $env:TCL_LIBRARY = $tclLib
+    $env:TK_LIBRARY = $tkLib
+    Write-Host "  Tcl: $env:TCL_LIBRARY"
+} else {
+    Write-Host "  [WARN] No se encontro Tcl en $tclLib"
+}
+
 $pyiArgs = @(
     '--name', 'RealView',
     '--onefile',
