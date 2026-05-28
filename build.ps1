@@ -79,18 +79,12 @@ if (-not $SkipPG) {
 # 6. Build with PyInstaller
 Write-Host '[6/6] Construyendo ejecutable...' -ForegroundColor Yellow
 
-# Force PyInstaller to use this Python's Tcl (fixes version mismatch)
+# Force PyInstaller to bundle THIS Python's Tcl (NOT any other version)
 $pythonHome = & python -c "import sys; print(sys.base_prefix)" 2>&1 | Out-String
 $pythonHome = $pythonHome.Trim()
-$tclLib = Join-Path $pythonHome 'tcl\tcl8.6'
-$tkLib = Join-Path $pythonHome 'tcl\tk8.6'
-if (Test-Path $tclLib) {
-    $env:TCL_LIBRARY = $tclLib
-    $env:TK_LIBRARY = $tkLib
-    Write-Host "  Tcl: $env:TCL_LIBRARY"
-} else {
-    Write-Host "  [WARN] No se encontro Tcl en $tclLib"
-}
+$tclSrc = Join-Path $pythonHome 'tcl'
+$dllSrc = Join-Path $pythonHome 'DLLs'
+Write-Host "  Python home: $pythonHome"
 
 $pyiArgs = @(
     '--name', 'RealView',
@@ -106,11 +100,29 @@ $pyiArgs = @(
     '--hidden-import', 'customtkinter',
     '--hidden-import', 'PIL',
     '--hidden-import', 'PIL._tkinter_finder',
+    '--hidden-import', '_tkinter',
     '--collect-submodules', 'customtkinter',
     '--collect-data', 'customtkinter',
-    '--collect-all', 'tkinter',
     'src/desktop.py'
 )
+
+# Explicitly add Python's Tcl tree (tcl/tcl8.6 and tcl/tk8.6)
+if (Test-Path $tclSrc) {
+    Get-ChildItem $tclSrc -Directory | ForEach-Object {
+        $name = $_.Name
+        $pyiArgs += @('--add-data', "$($_.FullName);tcl\$name")
+        Write-Host "  + tcl data: tcl\$name"
+    }
+}
+
+# Explicitly add Tcl/Tk DLLs from Python's DLLs dir
+if (Test-Path $dllSrc) {
+    $tclDll = Join-Path $dllSrc 'tcl86t.dll'
+    $tkDll = Join-Path $dllSrc 'tk86t.dll'
+    if (Test-Path $tclDll) { $pyiArgs += @('--add-binary', "$tclDll;.") }
+    if (Test-Path $tkDll) { $pyiArgs += @('--add-binary', "$tkDll;.") }
+    Write-Host '  + Tcl/Tk DLLs added'
+}
 
 if (Test-Path 'pg\pgsql\bin\pg_ctl.exe') {
     $pyiArgs += @('--add-data', 'pg;pgsql')
