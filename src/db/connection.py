@@ -14,6 +14,10 @@ _config = None
 def load_config(path: str = "config/settings.toml") -> dict:
     global _config
     if _config is None:
+        if getattr(sys, "frozen", False):
+            bundled = Path(sys._MEIPASS) / path
+            if bundled.exists():
+                path = str(bundled)
         with open(path, "rb") as f:
             _config = toml_parser.load(f)
     return _config
