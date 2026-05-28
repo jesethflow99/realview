@@ -424,32 +424,49 @@ class RealViewApp(ctk.CTk):
                 text="❌ No se pudo conectar. Revisa los datos o elige otro backend.", text_color="red")
 
     def _save_config_to_file(self):
-        db = self.config_data["database"]
-        lines = []
-        lines.append("[database]")
-        lines.append(f"backend = \"{db.get('backend', 'sqlite')}\"")
-        if db.get("backend") != "sqlite":
-            lines.append(f"host = \"{db.get('host', 'localhost')}\"")
-            lines.append(f"port = {db.get('port', 5432)}")
-            lines.append(f"name = \"{db.get('name', 'realview')}\"")
-            lines.append(f"user = \"{db.get('user', 'postgres')}\"")
-            lines.append(f"password = \"{db.get('password', 'postgres')}\"")
-        lines.append(f"schema = \"{db.get('schema', 'public')}\"")
-        lines.append(f"sqlite_path = \"{db.get('sqlite_path', 'data/realview.db')}\"")
-
         toml_path = Path("config/settings.toml")
-        if toml_path.exists():
-            content = toml_path.read_text()
-            import re
-            new_content = re.sub(r'^\s*backend\s*=\s*"[^"]*"', f'backend = "{db.get("backend", "sqlite")}"', content, flags=re.MULTILINE)
-            if "backend" in new_content:
-                toml_path.write_text(new_content)
-                return
 
-        config_dir = Path("config")
-        config_dir.mkdir(exist_ok=True)
-        existing = toml_path.read_text() if toml_path.exists() else ""
-        toml_path.write_text(existing + "\n" + "\n".join(lines) + "\n")
+        content = ""
+        if toml_path.exists():
+            for enc in ["utf-8", "cp1252", "latin-1"]:
+                try:
+                    content = toml_path.read_text(encoding=enc)
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+
+        import re
+        new_backend = self.config_data["database"].get("backend", "sqlite")
+        if content:
+            content = re.sub(
+                r'^\s*backend\s*=\s*"[^"]*"',
+                f'backend = "{new_backend}"',
+                content,
+                flags=re.MULTILINE,
+            )
+            if "host" in self.config_data["database"] and new_backend != "sqlite":
+                db = self.config_data["database"]
+                for key in ["host", "port", "name", "user", "password"]:
+                    val = db.get(key, "")
+                    pattern = rf'^\s*{key}\s*=\s*.*'
+                    replacement = f'{key} = "{val}"' if key != "port" else f"port = {val}"
+                    if re.search(pattern, content, flags=re.MULTILINE):
+                        content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+        else:
+            db = self.config_data["database"]
+            lines = ["[database]", f"backend = \"{new_backend}\""]
+            if new_backend != "sqlite":
+                lines.append(f"host = \"{db.get('host', 'localhost')}\"")
+                lines.append(f"port = {db.get('port', 5432)}")
+                lines.append(f"name = \"{db.get('name', 'realview')}\"")
+                lines.append(f"user = \"{db.get('user', 'postgres')}\"")
+                lines.append(f"password = \"{db.get('password', 'postgres')}\"")
+            lines.append(f"schema = \"{db.get('schema', 'public')}\"")
+            lines.append(f"sqlite_path = \"{db.get('sqlite_path', 'data/realview.db')}\"")
+            content = "\n".join(lines) + "\n"
+
+        toml_path.parent.mkdir(exist_ok=True)
+        toml_path.write_text(content, encoding="utf-8")
 
     def _render_dashboard(self):
         self._clear_frame(self.frames["dashboard"])
