@@ -3,6 +3,7 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+import traceback
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -140,6 +141,7 @@ class RealViewApp(ctk.CTk):
             return True
         except Exception as e:
             print(f"[ERROR] Connection failed: {e}")
+            traceback.print_exc()
             self.engine = None
             self._update_status(False)
             return False

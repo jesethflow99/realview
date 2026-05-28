@@ -1,5 +1,5 @@
 [database]
-# backend: "sqlite" (dev), "postgresql" (server), o "embedded" (portátil auto-gestionado)
+# backend: "sqlite" (dev), "postgresql" (server), o "embedded" (portatil auto-gestionado)
 backend = "sqlite"
 # Solo para PostgreSQL:
 host = "localhost"
