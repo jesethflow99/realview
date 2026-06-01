@@ -437,34 +437,43 @@ class RealViewApp(ctk.CTk):
                 except (UnicodeDecodeError, UnicodeError):
                     continue
 
-        import re
-        new_backend = self.config_data["database"].get("backend", "sqlite")
+        db = self.config_data["database"]
+        new_backend = db.get("backend", "sqlite")
+
         if content:
-            content = re.sub(
-                r'^\s*backend\s*=\s*"[^"]*"',
-                f'backend = "{new_backend}"',
-                content,
-                flags=re.MULTILINE,
-            )
-            if "host" in self.config_data["database"] and new_backend != "sqlite":
-                db = self.config_data["database"]
-                for key in ["host", "port", "name", "user", "password"]:
-                    val = db.get(key, "")
-                    pattern = rf'^\s*{key}\s*=\s*.*'
-                    replacement = f'{key} = "{val}"' if key != "port" else f"port = {val}"
-                    if re.search(pattern, content, flags=re.MULTILINE):
-                        content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+            # Extract the [database] section between headers
+            import re
+            sections = re.split(r'^\[', content, flags=re.MULTILINE)
+            for i, sec in enumerate(sections):
+                if sec.startswith("database]"):
+                    lines = sec.split("\n")
+                    for j, line in enumerate(lines):
+                        line = line.strip()
+                        if line.startswith("backend"):
+                            lines[j] = f'backend = "{new_backend}"'
+                        elif new_backend != "sqlite" and line.startswith("host"):
+                            lines[j] = f'host = "{db.get("host", "localhost")}"'
+                        elif new_backend != "sqlite" and line.startswith("port"):
+                            lines[j] = f"port = {db.get('port', 5432)}"
+                        elif new_backend != "sqlite" and line.startswith("name"):
+                            lines[j] = f'name = "{db.get("name", "realview")}"'
+                        elif new_backend != "sqlite" and line.startswith("user"):
+                            lines[j] = f'user = "{db.get("user", "postgres")}"'
+                        elif new_backend != "sqlite" and line.startswith("password"):
+                            lines[j] = f'password = "{db.get("password", "postgres")}"'
+                    sections[i] = "\n".join(lines)
+                    break
+            content = "[" + "[".join(sections) if not content.startswith("[") else "[".join(sections)
         else:
-            db = self.config_data["database"]
-            lines = ["[database]", f"backend = \"{new_backend}\""]
+            lines = ["[database]", f'backend = "{new_backend}"']
             if new_backend != "sqlite":
-                lines.append(f"host = \"{db.get('host', 'localhost')}\"")
+                lines.append(f'host = "{db.get("host", "localhost")}"')
                 lines.append(f"port = {db.get('port', 5432)}")
-                lines.append(f"name = \"{db.get('name', 'realview')}\"")
-                lines.append(f"user = \"{db.get('user', 'postgres')}\"")
-                lines.append(f"password = \"{db.get('password', 'postgres')}\"")
-            lines.append(f"schema = \"{db.get('schema', 'public')}\"")
-            lines.append(f"sqlite_path = \"{db.get('sqlite_path', 'data/realview.db')}\"")
+                lines.append(f'name = "{db.get("name", "realview")}"')
+                lines.append(f'user = "{db.get("user", "postgres")}"')
+                lines.append(f'password = "{db.get("password", "postgres")}"')
+            lines.append(f'schema = "{db.get("schema", "public")}"')
+            lines.append(f'sqlite_path = "{db.get("sqlite_path", "data/realview.db")}"')
             content = "\n".join(lines) + "\n"
 
         toml_path.parent.mkdir(exist_ok=True)
